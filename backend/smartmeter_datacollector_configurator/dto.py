@@ -1,11 +1,47 @@
+import re
 from enum import Enum
-from typing import List, Literal, Optional, Union
+from typing import Dict, List, Literal, Optional
 
 from pydantic import BaseModel as PydanticBaseModel
 from pydantic import Field
 from pydantic.class_validators import validator
 
 LOGGER_LEVEL = ["DEBUG", "INFO", "WARNING", "ERROR", "FATAL", "CRITICAL"]
+
+# --- scaling / unit adjustment helpers -------------------------------------
+# Base units that can be relabelled / converted, mapped to their canonical
+# spelling. ``var``/``varh`` are accepted as equivalents of ``VA``/``VAh``.
+_UNIT_BASE_ALIASES = {
+    "W": "W", "WH": "Wh", "VA": "VA", "VAH": "VAh",
+    "VAR": "VA", "VARH": "VAh", "V": "V", "A": "A",
+}
+# Bare built-in units usable as a per-unit-class selector.
+_UNIT_CLASSES = {"W": "W", "WH": "Wh", "VA": "VA", "VAH": "VAh", "V": "V", "A": "A"}
+_UNIT_PREFIXES = ("m", "k", "M", "G")
+
+
+def _obis_groups(value: str):
+    return [g for g in re.split(r"\W+", value.strip()) if g != ""]
+
+
+def is_obis_selector(value: str) -> bool:
+    """True if ``value`` looks like an OBIS code (2, 3, 5 or 6 numeric groups)."""
+    groups = _obis_groups(value)
+    return len(groups) in (2, 3, 5, 6) and all(g.isdigit() for g in groups)
+
+
+def normalize_unit_class(value: str) -> Optional[str]:
+    """Return the canonical built-in unit for a class selector, or ``None``."""
+    return _UNIT_CLASSES.get(value.strip().upper())
+
+
+def is_valid_unit(value: str) -> bool:
+    """True if ``value`` is a supported (optionally SI-prefixed) unit."""
+    value = value.strip()
+    for prefix in _UNIT_PREFIXES:
+        if value.startswith(prefix) and value[len(prefix):].upper() in _UNIT_BASE_ALIASES:
+            return True
+    return value.upper() in _UNIT_BASE_ALIASES
 
 
 class MeterType(str, Enum):
@@ -33,6 +69,15 @@ class MeterDto(BaseModel):
     type: MeterType
     port: str
     key: Optional[str] = None
+    # Optional adjustments applied on top of the meter's built-in behaviour.
+    # `scale`         : global multiplicative factor for every register.
+    # `scale_per_obis`: factor per OBIS code (overrides `scale`).
+    # `unit_per_class`: target unit per built-in unit (e.g. {"W": "kW"}).
+    # `unit_per_obis` : target unit per OBIS code (overrides `unit_per_class`).
+    scale: Optional[float] = None
+    scale_per_obis: Dict[str, float] = {}
+    unit_per_class: Dict[str, str] = {}
+    unit_per_obis: Dict[str, str] = {}
 
     @validator("port")
     @classmethod
@@ -40,6 +85,46 @@ class MeterDto(BaseModel):
         if not val.strip():
             raise ValueError("Smart meter port must not be empty.")
         return val.strip()
+
+    @validator("scale")
+    @classmethod
+    def scale_not_zero(cls, val: Optional[float]):
+        if val is not None and val == 0:
+            raise ValueError("Scaling factor must not be zero.")
+        return val
+
+    @validator("scale_per_obis")
+    @classmethod
+    def scale_per_obis_valid(cls, val: Dict[str, float]):
+        for obis, factor in val.items():
+            if not is_obis_selector(obis):
+                raise ValueError(f"Invalid OBIS code '{obis}' in scaling.")
+            if factor == 0:
+                raise ValueError(f"Scaling factor for '{obis}' must not be zero.")
+        return val
+
+    @validator("unit_per_class")
+    @classmethod
+    def unit_per_class_valid(cls, val: Dict[str, str]):
+        normalized: Dict[str, str] = {}
+        for unit, target in val.items():
+            builtin = normalize_unit_class(unit)
+            if builtin is None:
+                raise ValueError(f"Unknown unit class '{unit}'. Allowed: W, Wh, VA, VAh, V, A.")
+            if not is_valid_unit(target):
+                raise ValueError(f"Unsupported target unit '{target}'.")
+            normalized[builtin] = target.strip()
+        return normalized
+
+    @validator("unit_per_obis")
+    @classmethod
+    def unit_per_obis_valid(cls, val: Dict[str, str]):
+        for obis, target in val.items():
+            if not is_obis_selector(obis):
+                raise ValueError(f"Invalid OBIS code '{obis}' in unit override.")
+            if not is_valid_unit(target):
+                raise ValueError(f"Unsupported target unit '{target}'.")
+        return val
 
 
 class MqttSinkDto(BaseModel):

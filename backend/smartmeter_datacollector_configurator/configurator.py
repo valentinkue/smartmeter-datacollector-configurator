@@ -1,7 +1,12 @@
 import configparser
 import logging
+from typing import Any, Dict
 
-from smartmeter_datacollector_configurator.dto import ConfigDto, LoggerSinkDto, MeterDto, MqttSinkDto, SinkType
+from smartmeter_datacollector_configurator.dto import (ConfigDto, LoggerSinkDto, MeterDto, MqttSinkDto, SinkType,
+                                                       is_obis_selector)
+
+# Reader keys that map directly to a MeterDto field (all others are adjustments).
+_METER_BASE_KEYS = {"type", "port", "key"}
 
 CA_FILE_NAME = "ca.crt"
 CONFIG_FILE_NAME = "datacollector.ini"
@@ -13,14 +18,59 @@ class ConfigWriteError(Exception):
     pass
 
 
+def _meter_to_section(meter: MeterDto) -> Dict[str, str]:
+    """Flatten a ``MeterDto`` into the flat key/value pairs of an ini section."""
+    section: Dict[str, str] = {"type": meter.type, "port": meter.port}
+    if meter.key:
+        section["key"] = meter.key
+    if meter.scale is not None:
+        section["scale"] = str(meter.scale)
+    for obis, factor in meter.scale_per_obis.items():
+        section[f"scale.{obis}"] = str(factor)
+    for unit, target in meter.unit_per_class.items():
+        section[f"unit.{unit}"] = target
+    for obis, target in meter.unit_per_obis.items():
+        section[f"unit.{obis}"] = target
+    return section
+
+
+def _section_to_meter(raw: Dict[str, str]) -> MeterDto:
+    """Collect a reader ini section (incl. dotted keys) into a ``MeterDto``."""
+    data: Dict[str, Any] = {}
+    scale_per_obis: Dict[str, str] = {}
+    unit_per_class: Dict[str, str] = {}
+    unit_per_obis: Dict[str, str] = {}
+    for key, value in raw.items():
+        lkey = key.lower()
+        if lkey == "scale":
+            data["scale"] = value
+        elif lkey.startswith("scale."):
+            scale_per_obis[key[len("scale."):]] = value
+        elif lkey.startswith("unit."):
+            selector = key[len("unit."):]
+            if is_obis_selector(selector):
+                unit_per_obis[selector] = value
+            else:
+                unit_per_class[selector] = value
+        elif lkey in _METER_BASE_KEYS:
+            data[lkey] = value
+        # Other legacy keys (baudrate, systemtime, ...) are ignored, matching
+        # the previous behaviour.
+    if scale_per_obis:
+        data["scale_per_obis"] = scale_per_obis
+    if unit_per_class:
+        data["unit_per_class"] = unit_per_class
+    if unit_per_obis:
+        data["unit_per_obis"] = unit_per_obis
+    return MeterDto.parse_obj(data)
+
+
 def retrieve_config(config_dir: str) -> ConfigDto:
     parser = _read_config_file(f"{config_dir}/{CONFIG_FILE_NAME}")
     dto = ConfigDto()
     for sec in parser.sections():
         if sec.startswith("reader"):
-            dto.meters.append(MeterDto.parse_obj(
-                dict(parser.items(sec))
-            ))
+            dto.meters.append(_section_to_meter(dict(parser.items(sec))))
         elif sec.startswith("sink"):
             sink_dict = dict(parser.items(sec))
             if "type" not in sink_dict:
@@ -45,7 +95,7 @@ def write_config_from_dto(config_dir: str, config: ConfigDto) -> None:
     for i, meter in enumerate(config.meters):
         sec_name = f"reader{i}"
         parser.add_section(sec_name)
-        parser[sec_name] = meter.dict(exclude_none=True)
+        parser[sec_name] = _meter_to_section(meter)
     sinks = (config.mqtt_sink, config.logger_sink)
     for i, sink in enumerate(sinks):
         if not sink:
