@@ -19,29 +19,8 @@ _UNIT_BASE_ALIASES = {
 _UNIT_CLASSES = {"W": "W", "WH": "Wh", "VA": "VA", "VAH": "VAh", "V": "V", "A": "A"}
 _UNIT_PREFIXES = ("m", "k", "M", "G")
 
-
-def _obis_groups(value: str):
-    return [g for g in re.split(r"\W+", value.strip()) if g != ""]
-
-
-def is_obis_selector(value: str) -> bool:
-    """True if ``value`` looks like an OBIS code (2, 3, 5 or 6 numeric groups)."""
-    groups = _obis_groups(value)
-    return len(groups) in (2, 3, 5, 6) and all(g.isdigit() for g in groups)
-
-
-def normalize_unit_class(value: str) -> Optional[str]:
-    """Return the canonical built-in unit for a class selector, or ``None``."""
-    return _UNIT_CLASSES.get(value.strip().upper())
-
-
-def is_valid_unit(value: str) -> bool:
-    """True if ``value`` is a supported (optionally SI-prefixed) unit."""
-    value = value.strip()
-    for prefix in _UNIT_PREFIXES:
-        if value.startswith(prefix) and value[len(prefix):].upper() in _UNIT_BASE_ALIASES:
-            return True
-    return value.upper() in _UNIT_BASE_ALIASES
+_REGEX_OBIS = re.compile(r"^\d{1,3}(?:\W\d{1,3}){1,5}$")
+_REGEX_OCTET = re.compile(r"\d+")
 
 
 class MeterType(str, Enum):
@@ -69,11 +48,6 @@ class MeterDto(BaseModel):
     type: MeterType
     port: str
     key: Optional[str] = None
-    # Optional adjustments applied on top of the meter's built-in behaviour.
-    # `scale`         : global multiplicative factor for every register.
-    # `scale_per_obis`: factor per OBIS code (overrides `scale`).
-    # `unit_per_class`: target unit per built-in unit (e.g. {"W": "kW"}).
-    # `unit_per_obis` : target unit per OBIS code (overrides `unit_per_class`).
     scale: Optional[float] = None
     scale_per_obis: Dict[str, float] = {}
     unit_per_class: Dict[str, str] = {}
@@ -204,3 +178,25 @@ class CredentialsDto(BaseModel):
         if len(pwd) < 8 or len(pwd) > 30:
             raise ValueError("Invalid password length.")
         return pwd
+
+
+def is_obis_selector(value: str) -> bool:
+    """True if ``value`` looks like an OBIS code (2 to 6 numeric groups, each 0-255)."""
+    value = value.strip()
+    if not _REGEX_OBIS.match(value):
+        return False
+    return all(int(octet) <= 255 for octet in _REGEX_OCTET.findall(value))
+
+
+def normalize_unit_class(value: str) -> Optional[str]:
+    """Return the canonical built-in unit for a class selector, or ``None``."""
+    return _UNIT_CLASSES.get(value.strip().upper())
+
+
+def is_valid_unit(value: str) -> bool:
+    """True if ``value`` is a supported (optionally SI-prefixed) unit."""
+    value = value.strip()
+    for prefix in _UNIT_PREFIXES:
+        if value.startswith(prefix) and value[len(prefix):].upper() in _UNIT_BASE_ALIASES:
+            return True
+    return value.upper() in _UNIT_BASE_ALIASES
