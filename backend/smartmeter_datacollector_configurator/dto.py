@@ -1,6 +1,6 @@
 import re
 from enum import Enum
-from typing import Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel as PydanticBaseModel
 from pydantic import Field
@@ -99,6 +99,49 @@ class MeterDto(BaseModel):
             if not is_valid_unit(target):
                 raise ValueError(f"Unsupported target unit '{target}'.")
         return val
+
+    def to_flat_dict(self) -> Dict[str, str]:
+        """Flatten a ``MeterDto`` into the flat key/value pairs of an ini section."""
+        flat: Dict[str, str] = {"type": self.type, "port": self.port}
+        if self.key:
+            flat["key"] = self.key
+        if self.scale is not None:
+            flat["scale"] = str(self.scale)
+        for obis, factor in self.scale_per_obis.items():
+            flat[f"scale.{obis}"] = str(factor)
+        for unit, target in self.unit_per_class.items():
+            flat[f"unit.{unit}"] = target
+        for obis, target in self.unit_per_obis.items():
+            flat[f"unit.{obis}"] = target
+        return flat
+
+    @classmethod
+    def from_flat_dict(cls, flat: Dict[str, str]) -> "MeterDto":
+        """Collect a reader ini section (incl. dotted keys) into a ``MeterDto``."""
+        data: Dict[str, Any] = {}
+        scale_per_obis: Dict[str, str] = {}
+        unit_per_class: Dict[str, str] = {}
+        unit_per_obis: Dict[str, str] = {}
+        for key, value in flat.items():
+            lkey = key.lower()
+            if lkey.startswith("scale."):
+                scale_per_obis[key[len("scale."):]] = value
+            elif lkey.startswith("unit."):
+                selector = key[len("unit."):]
+                if is_obis_selector(selector):
+                    unit_per_obis[selector] = value
+                else:
+                    unit_per_class[selector] = value
+            else:
+                data[lkey] = value
+
+        if scale_per_obis:
+            data["scale_per_obis"] = scale_per_obis
+        if unit_per_class:
+            data["unit_per_class"] = unit_per_class
+        if unit_per_obis:
+            data["unit_per_obis"] = unit_per_obis
+        return cls.parse_obj(data)
 
 
 class MqttSinkDto(BaseModel):
