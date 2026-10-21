@@ -102,11 +102,7 @@ class MeterDto(BaseModel):
 
     def to_flat_dict(self) -> Dict[str, str]:
         """Flatten a ``MeterDto`` into the flat key/value pairs of an ini section."""
-        flat: Dict[str, str] = {"type": self.type, "port": self.port}
-        if self.key:
-            flat["key"] = self.key
-        if self.scale is not None:
-            flat["scale"] = str(self.scale)
+        flat = self.dict(exclude_none=True, exclude={"scale_per_obis", "unit_per_class", "unit_per_obis"})
         for obis, factor in self.scale_per_obis.items():
             flat[f"scale.{obis}"] = str(factor)
         for unit, target in self.unit_per_class.items():
