@@ -9,10 +9,10 @@
         <option v-for="(name, typeKey) in TYPES" :value="typeKey" :key="typeKey">{{ name }}</option>
       </b-select>
     </b-field>
-    <b-field v-show="customPort" label-position="inside" label="Port/Device">
+    <b-field v-if="customPort" label-position="inside" label="Port/Device">
       <b-input v-model="port" type="text" required placeholder="/dev/ttyUSB0" lazy></b-input>
     </b-field>
-    <b-field v-show="!customPort" grouped label-position="inside" label="TTY USB Devices">
+    <b-field v-else grouped label-position="inside" label="TTY USB Devices">
       <b-select v-model="port" expanded>
         <option v-for="port in availablePorts" :value="port" :key="port">{{ port }}</option>
       </b-select>
@@ -28,23 +28,24 @@
     <b-field>
       <b-checkbox v-model="showAdvanced">Custom scaling &amp; units (optional)</b-checkbox>
     </b-field>
-    <b-collapse :open="showAdvanced" animation="slide">
+    <b-collapse v-model="showAdvanced" animation="slide">
       <div class="box">
-        <p class="help mb-3">
+        <p class="is-size-7 mb-3">
           All fields are optional and applied on top of the meter's built-in behaviour. Leaving them empty keeps the
           default values and units. Scaling and unit conversion are multiplied together; per-OBIS entries override the
           global / per-unit ones.
         </p>
 
-        <b-field label-position="inside" label="Global scaling factor (optional)">
-          <b-input v-model="scale" type="number" step="any" placeholder="e.g. 0.5" lazy></b-input>
+        <b-field label-position="inside" label="Global scaling factor">
+          <b-input v-model="scale" type="number" placeholder="1.0" lazy></b-input>
         </b-field>
 
         <label class="label is-small">Scaling per OBIS code</label>
         <b-field v-for="(row, i) in scaleRows" :key="'s' + i" grouped>
-          <b-input v-model="row.obis" placeholder="OBIS e.g. 1.0.3.7.0" expanded lazy></b-input>
-          <b-input v-model="row.factor" type="number" step="any" placeholder="factor" lazy></b-input>
-          <b-button type="is-danger is-light" icon-right="trash" @click="scaleRows.splice(i, 1)" />
+          <b-input v-model="row.obis" placeholder="e.g. 1.0.3.7.0" expanded lazy></b-input>
+          <p class="is-align-self-center">scaled with</p>
+          <b-input v-model="row.factor" type="number" placeholder="1.0" lazy></b-input>
+          <b-button type="is-danger is-light is-small" icon-right="trash" @click="scaleRows.splice(i, 1)" />
         </b-field>
         <b-button class="mb-4" size="is-small" icon-left="plus" @click="scaleRows.push({ obis: '', factor: '' })">
           Add OBIS scaling
@@ -55,8 +56,9 @@
           <b-select v-model="row.unit" expanded placeholder="from unit">
             <option v-for="u in UNIT_CLASSES" :value="u" :key="u">{{ u }}</option>
           </b-select>
-          <b-input v-model="row.target" placeholder="to unit e.g. kW" expanded lazy></b-input>
-          <b-button type="is-danger is-light" icon-right="trash" @click="unitClassRows.splice(i, 1)" />
+          <p class="is-align-self-center">to unit</p>
+          <b-input v-model="row.target" placeholder="e.g. kW" expanded lazy></b-input>
+          <b-button type="is-danger is-light is-small" icon-right="trash" @click="unitClassRows.splice(i, 1)" />
         </b-field>
         <b-button class="mb-4" size="is-small" icon-left="plus" @click="unitClassRows.push({ unit: 'W', target: '' })">
           Add unit conversion
@@ -64,9 +66,10 @@
 
         <label class="label is-small">Unit conversion per OBIS code</label>
         <b-field v-for="(row, i) in unitObisRows" :key="'uo' + i" grouped>
-          <b-input v-model="row.obis" placeholder="OBIS e.g. 1.0.3.7.0" expanded lazy></b-input>
-          <b-input v-model="row.target" placeholder="to unit e.g. kvar" expanded lazy></b-input>
-          <b-button type="is-danger is-light" icon-right="trash" @click="unitObisRows.splice(i, 1)" />
+          <b-input v-model="row.obis" placeholder="e.g. 1.0.3.7.0" expanded lazy></b-input>
+          <p class="is-align-self-center">to unit</p>
+          <b-input v-model="row.target" placeholder="e.g. kvar" expanded lazy></b-input>
+          <b-button type="is-danger is-light is-small" icon-right="trash" @click="unitObisRows.splice(i, 1)" />
         </b-field>
         <b-button size="is-small" icon-left="plus" @click="unitObisRows.push({ obis: '', target: '' })">
           Add OBIS unit override
