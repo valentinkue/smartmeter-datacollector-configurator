@@ -4,16 +4,16 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-import smartmeter_datacollector_configurator.configurator as configurator
+from smartmeter_datacollector_configurator import configurator
 from smartmeter_datacollector_configurator.dto import ConfigDto, MeterDto, MeterType
 
 
 def test_meter_defaults_have_empty_adjustments():
     meter = MeterDto(type=MeterType.LGE450, port="/dev/ttyUSB0")
     assert meter.scale is None
-    assert meter.scale_per_obis == {}
-    assert meter.unit_per_class == {}
-    assert meter.unit_per_obis == {}
+    assert not meter.scale_per_obis
+    assert not meter.unit_per_class
+    assert not meter.unit_per_obis
 
 
 def test_write_reader_section_flattens_adjustments(tmp_path: Path):
